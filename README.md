@@ -1,165 +1,112 @@
-# BlenderMCP - Blender Model Context Protocol Integration
+# UnityMCP - Unity Model Context Protocol Integration
 
-BlenderMCP connects Blender to Claude AI through the Model Context Protocol (MCP), allowing Claude to directly interact with and control Blender. This integration enables prompt assisted 3D modeling, scene creation, and manipulation.
+UnityMCP connects Unity to Claude AI through the Model Context Protocol (MCP), allowing Claude to directly interact with and control Unity. This integration enables prompt-assisted 3D modeling, scene creation, and manipulation.
 
-## Release notes (1.1.0)
+## Release notes (1.0.0)
 
-- Added support for Poly Haven assets through their API
-- For newcomers, you can go straight to Installation. For existing users, see the points below
-- Download the latest addon.py file and replace the older one, then add it to Blender
-- Delete the MCP server from Claude and add it back again, and you should be good to go!
+- Initial release of UnityMCP, transformed from the BlenderMCP project
+- Comprehensive Unity integration with support for objects, materials, lighting, cameras, and more
+- Intelligent scene analysis and suggestions through the Assistant subsystem
+- Modular architecture for easy extension
 
 ## Features
 
-- **Two-way communication**: Connect Claude AI to Blender through a socket-based server
-- **Object manipulation**: Create, modify, and delete 3D objects in Blender
-- **Material control**: Apply and modify materials and colors
-- **Scene inspection**: Get detailed information about the current Blender scene
-- **Code execution**: Run arbitrary Python code in Blender from Claude
+- **Two-way communication**: Connect Claude AI to Unity through a socket-based server
+- **Intelligent command handling**: Advanced command parsing and execution with error handling
+- **Context awareness**: Maintains state and context between commands
+- **Extensible architecture**: Modular subsystem design for easy expansion
+- **Scene analysis**: AI-powered analysis and suggestions for your Unity scenes
 
 ## Components
 
 The system consists of two main components:
 
-1. **Blender Addon (`addon.py`)**: A Blender addon that creates a socket server within Blender to receive and execute commands
-2. **MCP Server (`src/blender_mcp/server.py`)**: A Python server that implements the Model Context Protocol and connects to the Blender addon
+1. **Unity Plugin (`Assets/UnityMCP`)**: A C# plugin that creates a socket server within Unity to receive and execute commands
+2. **MCP Server (`Assets/UnityMCP/Python/unity_mcp_server.py`)**: A Python server that implements the Model Context Protocol and connects to the Unity plugin
 
 ## Installation
 
-
 ### Prerequisites
 
-- Blender 3.0 or newer
+- Unity 2020.3 or newer
 - Python 3.10 or newer
-- uv package manager: 
+- MCP package: `pip install mcp[cli]>=1.3.0`
 
-If you're on Mac, please install uv as
-```bash
-brew install uv
-```
-On Windows
-```bash
-pip install uv
-```
+### Installing the Unity Plugin
 
-Otherwise installation instructions are on their website: [Install uv](https://docs.astral.sh/uv/getting-started/installation/)
+1. Import the UnityMCP folder into your Unity project's Assets folder
+2. In Unity, go to Tools > Unity MCP > Create Server
+3. This will create a GameObject with the UnityMCPBrain component
 
-**⚠️ Do not proceed before installing UV**
+### Setting Up the MCP Server
 
-
-### Claude for Desktop Integration
-
-[Watch the setup instruction video](https://www.youtube.com/watch?v=neoK_WMq92g) (Assuming you have already installed uv)
+#### Claude for Desktop Integration
 
 Go to Claude > Settings > Developer > Edit Config > claude_desktop_config.json to include the following:
 
 ```json
 {
     "mcpServers": {
-        "blender": {
-            "command": "uvx",
+        "unity": {
+            "command": "python",
             "args": [
-                "blender-mcp"
+                "path/to/your/project/Assets/UnityMCP/Python/unity_mcp_server.py"
             ]
         }
     }
 }
 ```
 
-### Cursor integration
-
-Run blender-mcp without installing it permanently through uvx. Go to Cursor Settings > MCP and paste this as a command.
-
-```bash
-uvx blender-mcp
-```
-
-**⚠️ Only run one instance of the MCP server (either on Cursor or Claude Desktop), not both**
-
-### Installing the Blender Addon
-
-1. Download the `addon.py` file from this repo
-1. Open Blender
-2. Go to Edit > Preferences > Add-ons
-3. Click "Install..." and select the `addon.py` file
-4. Enable the addon by checking the box next to "Interface: Blender MCP"
-
-
 ## Usage
 
 ### Starting the Connection
-![BlenderMCP in the sidebar](assets/addon-instructions.png)
 
-1. In Blender, go to the 3D View sidebar (press N if not visible)
-2. Find the "BlenderMCP" tab
-3. Turn on the Poly Haven checkbox if you want assets from their API (optional)
-4. Click "Connect to Claude"
-5. Make sure the MCP server is running in your terminal
+1. In Unity, select the UnityMCPServer GameObject
+2. Click "Start Server" in the Inspector
+3. Make sure the MCP server is running in your terminal or through Claude
 
 ### Using with Claude
 
-Once the config file has been set on Claude, and the addon is running on Blender, you will see a hammer icon with tools for the Blender MCP.
-
-![BlenderMCP in the sidebar](assets/hammer-icon.png)
-
-#### Tools
-
-- `get_scene_info` - Gets scene information
-- `get_object_info` - Gets detailed information for a specific object in the scene
-- `create_primitive` - Create basic primitive objects with optional color
-- `set_object_property` - Set a single property of an object
-- `create_object` - Create a new object with detailed parameters
-- `modify_object` - Modify an existing object's properties
-- `delete_object` - Remove an object from the scene
-- `set_material` - Apply or create materials for objects
-- `execute_blender_code` - Run any Python code in Blender
-- `get_polyhaven_categories` - Get a list of categories for PolyHaven assets (HDRIs, textures, models)
-- `search_polyhaven_assets` - Search for assets on PolyHaven with optional category filtering
-- `download_polyhaven_asset` - Download and import a PolyHaven asset into Blender
-
-To see everything in Poly Haven, [see here](https://polyhaven.com/)
+Once the config file has been set on Claude, and the server is running in Unity, you will see a hammer icon with tools for the Unity MCP.
 
 ### Example Commands
 
 Here are some examples of what you can ask Claude to do:
 
-- "Create a low poly scene in a dungeon, with a dragon guarding a pot of gold" [Demo](https://www.youtube.com/watch?v=DqgKuLYUv00)
-- "Create a beach vibe using HDRIs, textures, and models like rocks and vegatation from Poly Haven" [Demo](https://www.youtube.com/watch?v=I29rn92gkC4)
-- Give a reference image, and create a Blender scene out of it [Demo](https://www.youtube.com/watch?v=FDRb03XPiRo)
-- "Get information about the current scene, and make a threejs sketch from it" [Demo](https://www.youtube.com/watch?v=jxbNI5L7AH8)
-- "Make this car red and metallic" 
-- "Create a sphere and place it above the cube"
-- "Make the lighting like a studio"
-- "Point the camera at the scene, and make it isometric"
+- "Create a simple scene with a red cube, a blue sphere, and a green cylinder"
+- "Add a point light above the scene with a warm color"
+- "Create a camera that looks at the cube and make it the main camera"
+- "Make the cube twice as large and rotate it 45 degrees around the Y axis"
+- "Apply a metallic material to the sphere with a gold color"
+- "Analyze my scene and give me insights on how to improve it"
+- "Suggest a creative way to enhance my scene's visual appeal"
+
+## Documentation
+
+Comprehensive documentation is available in the `Assets/UnityMCP/Documentation` folder:
+
+- **Quick Start Guide**: Get up and running quickly
+- **Command Reference**: Complete list of available commands
+- **Subsystem Reference**: Information about available subsystems
+- **Architecture**: Overview of the UnityMCP architecture
+- **Assistant Guide**: How to use the AI-powered scene analysis features
 
 ## Troubleshooting
 
-- **Connection issues**: Make sure the Blender addon server is running, and the MCP server is configured on Claude, DO NOT run the uvx command in the terminal. Sometimes, the first command won't go through but after that it starts working.
+- **Connection issues**: Make sure the Unity server is running, and the MCP server is configured on Claude
 - **Timeout errors**: Try simplifying your requests or breaking them into smaller steps
-- **Poly Haven integration**: Claude is sometimes erratic with its behaviour
-- **Have you tried turning it off and on again?**: If you're still having connection errors, try restarting both Claude and the Blender server
-
-
-## Technical Details
-
-### Communication Protocol
-
-The system uses a simple JSON-based protocol over TCP sockets:
-
-- **Commands** are sent as JSON objects with a `type` and optional `params`
-- **Responses** are JSON objects with a `status` and `result` or `message`
-
-## Limitations & Security Considerations
-
-- The `execute_blender_code` tool allows running arbitrary Python code in Blender, which can be powerful but potentially dangerous. Use with caution in production environments. ALWAYS save your work before using it.
-- Poly Haven requires downloading models, textures, and HDRI images. If you do not want to use it, please turn it off in the checkbox in Blender. 
-- Complex operations might need to be broken down into smaller steps
-
+- **Command errors**: Check the Unity console for detailed error messages
+- **Performance issues**: For complex operations, break them down into smaller commands
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Disclaimer
+## Acknowledgments
 
-This is a third-party integration and not made by Blender.
+- This project is inspired by the BlenderMCP project
+- Thanks to the Model Context Protocol team for creating the MCP standard
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
