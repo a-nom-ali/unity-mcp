@@ -19,7 +19,7 @@ namespace UnityMCPEditor
             
             // Display server status with color
             GUIStyle statusStyle = new GUIStyle(EditorStyles.label);
-            if (server.isRunning)
+            if (server.IsRunning)
             {
                 statusStyle.normal.textColor = Color.green;
                 EditorGUILayout.LabelField("Status: Running", statusStyle);
@@ -35,13 +35,13 @@ namespace UnityMCPEditor
             // Server controls
             EditorGUILayout.BeginHorizontal();
             
-            GUI.enabled = !server.isRunning;
+            GUI.enabled = !server.IsRunning;
             if (GUILayout.Button("Start Server", GUILayout.Height(30)))
             {
                 server.StartServer();
             }
             
-            GUI.enabled = server.isRunning;
+            GUI.enabled = server.IsRunning;
             if (GUILayout.Button("Stop Server", GUILayout.Height(30)))
             {
                 server.StopServer();
@@ -59,7 +59,7 @@ namespace UnityMCPEditor
                 EditorGUI.indentLevel++;
                 
                 // Only allow editing when server is not running
-                GUI.enabled = !server.isRunning;
+                GUI.enabled = !server.IsRunning;
                 
                 server.host = EditorGUILayout.TextField("Host", server.host);
                 server.port = EditorGUILayout.IntField("Port", server.port);

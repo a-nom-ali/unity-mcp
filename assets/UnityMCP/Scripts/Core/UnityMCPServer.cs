@@ -16,8 +16,10 @@ namespace UnityMCP
         public int port = 9876;
         public bool autoStartOnPlay = false;
 
-        [Header("Status")]
-        [SerializeField] private bool isRunning = false;
+        [field: Header("Status")]
+        [field: SerializeField]
+        public bool IsRunning { get; private set; } = false;
+
         [SerializeField] private string statusMessage = "Server not started";
         [SerializeField] private int connectedClients = 0;
 
@@ -68,14 +70,14 @@ namespace UnityMCP
 
         public void StartServer()
         {
-            if (isRunning) return;
+            if (IsRunning) return;
 
             try
             {
                 serverThread = new Thread(new ThreadStart(ServerLoop));
                 serverThread.IsBackground = true;
                 serverThread.Start();
-                isRunning = true;
+                IsRunning = true;
                 statusMessage = $"Server started on {host}:{port}";
                 Debug.Log(statusMessage);
             }
@@ -88,11 +90,11 @@ namespace UnityMCP
 
         public void StopServer()
         {
-            if (!isRunning) return;
+            if (!IsRunning) return;
 
             try
             {
-                isRunning = false;
+                IsRunning = false;
                 
                 // Close the server
                 if (server != null)
@@ -142,7 +144,7 @@ namespace UnityMCP
                 server = new TcpListener(IPAddress.Parse(host), port);
                 server.Start();
                 
-                while (isRunning)
+                while (IsRunning)
                 {
                     // Check for new client connections
                     if (server.Pending())
@@ -171,7 +173,7 @@ namespace UnityMCP
             }
             catch (Exception e)
             {
-                if (isRunning) // Only log if we didn't stop intentionally
+                if (IsRunning) // Only log if we didn't stop intentionally
                 {
                     mainThreadActions.Enqueue(() => {
                         statusMessage = $"Server error: {e.Message}";
@@ -197,7 +199,7 @@ namespace UnityMCP
             
             try
             {
-                while (isRunning && client.Connected)
+                while (IsRunning && client.Connected)
                 {
                     messageBuilder.Clear();
                     int bytesRead;

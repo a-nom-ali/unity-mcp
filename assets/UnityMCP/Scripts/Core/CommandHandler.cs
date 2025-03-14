@@ -1,10 +1,203 @@
 using UnityEngine;
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using Unity.VisualScripting;
+using Object = UnityEngine.Object;
 
 namespace UnityMCP
 {
-    public class CommandHandler
+    /// <summary>
+    /// Base class for command handlers that process specific types of commands
+    /// </summary>
+    public abstract partial class AbstractCommandHandler
+    {
+        protected UnityMCPContext _context;
+        private Dictionary<string, MethodInfo> _commandMethods;
+        
+        public AbstractCommandHandler()
+        {
+            // Discover command methods using reflection
+            DiscoverCommandMethods();
+        }
+        
+        private void DiscoverCommandMethods()
+        {
+            _commandMethods = new Dictionary<string, MethodInfo>();
+            
+            // Get all methods in the derived class
+            var methods = GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            
+            foreach (var method in methods)
+            {
+                // Check if the method has the CommandMethod attribute
+                var attribute = method.GetCustomAttribute<CommandMethodAttribute>();
+                if (attribute != null)
+                {
+                    string commandName = attribute.CommandName ?? method.Name;
+                    _commandMethods[commandName.ToLower()] = method;
+                }
+            }
+        }
+        
+        public void SetContext(UnityMCPContext context)
+        {
+            _context = context;
+        }
+        
+        public string ExecuteCommand(string action, string parameters)
+        {
+            // Convert action to lowercase for case-insensitive matching
+            action = action.ToLower();
+            
+            // Check if we have a method for this action
+            if (_commandMethods.TryGetValue(action, out var method))
+            {
+                try
+                {
+                    // Parse parameters based on the method's parameter types
+                    object[] methodParams = ParseParameters(method, parameters);
+                    
+                    // Invoke the method
+                    object result = method.Invoke(this, methodParams);
+                    
+                    // Convert result to JSON response
+                    return CreateSuccessResponse(result);
+                }
+                catch (Exception e)
+                {
+                    return JsonUtility.CreateErrorResponse($"Error executing command {action}: {e.Message}");
+                }
+            }
+            else
+            {
+                return JsonUtility.CreateErrorResponse($"Unknown command action: {action}");
+            }
+        }
+        
+        protected virtual object[] ParseParameters(MethodInfo method, string parametersJson)
+        {
+            var parameters = method.GetParameters();
+            
+            // If there are no parameters, return an empty array
+            if (parameters.Length == 0)
+            {
+                return new object[0];
+            }
+            
+            // Parse the JSON parameters
+            var parsedParams = string.IsNullOrEmpty(parametersJson) 
+                ? new Dictionary<string, object>() 
+                : JsonUtility.FromJson<Dictionary<string, object>>(parametersJson);
+            
+            // Create an array to hold the parameter values
+            object[] paramValues = new object[parameters.Length];
+            
+            // Fill in the parameter values
+            for (int i = 0; i < parameters.Length; i++)
+            {
+                var param = parameters[i];
+                
+                // Check if the parameter exists in the parsed JSON
+                if (parsedParams.TryGetValue(param.Name, out var value))
+                {
+                    // Convert the value to the parameter type
+                    paramValues[i] = ConvertValue(value, param.ParameterType);
+                }
+                else if (param.HasDefaultValue)
+                {
+                    // Use the default value
+                    paramValues[i] = param.DefaultValue;
+                }
+                else
+                {
+                    // Parameter is required but not provided
+                    throw new ArgumentException($"Required parameter '{param.Name}' not provided");
+                }
+            }
+            
+            return paramValues;
+        }
+        
+        protected virtual object ConvertValue(object value, Type targetType)
+        {
+            // Handle null values
+            if (value == null)
+            {
+                return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
+            }
+            
+            // Handle conversion to string
+            if (targetType == typeof(string))
+            {
+                return value.ToString();
+            }
+            
+            // Handle conversion to primitive types
+            if (targetType.IsPrimitive)
+            {
+                return Convert.ChangeType(value, targetType);
+            }
+            
+            // Handle conversion to enum
+            if (targetType.IsEnum)
+            {
+                return Enum.Parse(targetType, value.ToString(), true);
+            }
+            
+            // Handle conversion to Unity types
+            if (targetType == typeof(UnityEngine.Vector3))
+            {
+                if (value is Dictionary<string, object> dict)
+                {
+                    float x = Convert.ToSingle(dict.GetValueOrDefault("x", 0));
+                    float y = Convert.ToSingle(dict.GetValueOrDefault("y", 0));
+                    float z = Convert.ToSingle(dict.GetValueOrDefault("z", 0));
+                    return new UnityEngine.Vector3(x, y, z);
+                }
+            }
+            
+            // Handle conversion to lists and arrays
+            if (targetType.IsGenericType && targetType.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                Type elementType = targetType.GetGenericArguments()[0];
+                var list = Activator.CreateInstance(targetType);
+                var addMethod = targetType.GetMethod("Add");
+                
+                if (value is IEnumerable<object> enumerable)
+                {
+                    foreach (var item in enumerable)
+                    {
+                        var convertedItem = ConvertValue(item, elementType);
+                        addMethod.Invoke(list, new[] { convertedItem });
+                    }
+                }
+                
+                return list;
+            }
+            
+            // Handle conversion to complex types
+            return Newtonsoft.Json.JsonConvert.DeserializeAnonymousType(JsonUtility.ToJson(value), targetType);
+        }
+        
+        protected virtual string CreateSuccessResponse(object result)
+        {
+            return JsonUtility.CreateSuccessResponse(result);
+        }
+    }
+    
+    [AttributeUsage(AttributeTargets.Method)]
+    public class CommandMethodAttribute : Attribute
+    {
+        public string CommandName { get; }
+        
+        public CommandMethodAttribute(string commandName = null)
+        {
+            CommandName = commandName;
+        }
+    }
+
+    public class CommandHandler : AbstractCommandHandler
     {
         private Dictionary<string, Func<string, string>> commandHandlers;
 
@@ -67,7 +260,7 @@ namespace UnityMCP
         {
             var objects = new List<Dictionary<string, object>>();
             
-            foreach (GameObject obj in UnityEngine.Object.FindObjectsOfType<GameObject>())
+            foreach (GameObject obj in Object.FindObjectsByType<GameObject>(FindObjectsSortMode.InstanceID))
             {
                 if (obj.transform.parent == null) // Only root objects
                 {
@@ -249,19 +442,19 @@ namespace UnityMCP
                 // Modify position if specified
                 if (paramsObj.position != null)
                 {
-                    obj.transform.position = paramsObj.position;
+                    obj.transform.position = (Vector3)paramsObj.position;
                 }
                 
                 // Modify rotation if specified
                 if (paramsObj.rotation != null)
                 {
-                    obj.transform.eulerAngles = paramsObj.rotation;
+                    obj.transform.eulerAngles = (Vector3)paramsObj.rotation;
                 }
                 
                 // Modify scale if specified
                 if (paramsObj.scale != null)
                 {
-                    obj.transform.localScale = paramsObj.scale;
+                    obj.transform.localScale = (Vector3)paramsObj.scale;
                 }
                 
                 // Modify visibility if specified

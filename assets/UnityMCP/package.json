@@ -1,0 +1,24 @@
+{
+  "name": "com.ai.unitymcp",
+  "version": "0.1.0",
+  "displayName": "Unity MCP",
+  "description": "Unity integration through the Model Context Protocol",
+  "unity": "2020.3",
+  "documentationUrl": "https://github.com/yourusername/unity-mcp",
+  "changelogUrl": "https://github.com/yourusername/unity-mcp/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/yourusername/unity-mcp/blob/main/LICENSE",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  },
+  "keywords": [
+    "ai",
+    "claude",
+    "mcp",
+    "integration"
+  ],
+  "author": {
+    "name": "Your Name",
+    "email": "your.email@example.com",
+    "url": "https://github.com/yourusername"
+  }
+} 
