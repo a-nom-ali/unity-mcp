@@ -2,6 +2,7 @@ using UnityEngine;
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using Newtonsoft.Json.Linq;
 using Unity.VisualScripting;
 using Object = UnityEngine.Object;
 
@@ -10,18 +11,22 @@ namespace UnityMCP
     /// <summary>
     /// Base class for command handlers that process specific types of commands
     /// </summary>
-    public abstract partial class AbstractCommandHandler
+    public class CommandHandler
     {
         protected UnityMCPContext _context;
         private Dictionary<string, MethodInfo> _commandMethods;
+        private Dictionary<string, Func<string, string>> _legacyCommandHandlers;
         
-        public AbstractCommandHandler()
+        public CommandHandler()
         {
             // Discover command methods using reflection
             DiscoverCommandMethods();
+            
+            // Initialize legacy command handlers
+            InitializeLegacyHandlers();
         }
         
-        private void DiscoverCommandMethods()
+        protected void DiscoverCommandMethods()
         {
             _commandMethods = new Dictionary<string, MethodInfo>();
             
@@ -40,6 +45,24 @@ namespace UnityMCP
             }
         }
         
+        protected virtual void InitializeLegacyHandlers()
+        {
+            // Initialize legacy command handlers
+            _legacyCommandHandlers = new Dictionary<string, Func<string, string>>
+            {
+                { "get_scene_info", GetSceneInfo },
+                { "get_object_info", GetObjectInfo },
+                { "create_object", CreateObject },
+                { "modify_object", ModifyObject },
+                { "delete_object", DeleteObject },
+                { "set_material", SetMaterial },
+                { "execute_unity_code", ExecuteUnityCode },
+                { "get_asset_categories", GetAssetCategories },
+                { "search_assets", SearchAssets },
+                { "download_asset", DownloadAsset }
+            };
+        }
+        
         public void SetContext(UnityMCPContext context)
         {
             _context = context;
@@ -50,7 +73,7 @@ namespace UnityMCP
             // Convert action to lowercase for case-insensitive matching
             action = action.ToLower();
             
-            // Check if we have a method for this action
+            // First try the attribute-based command methods
             if (_commandMethods.TryGetValue(action, out var method))
             {
                 try
@@ -69,10 +92,33 @@ namespace UnityMCP
                     return JsonUtility.CreateErrorResponse($"Error executing command {action}: {e.Message}");
                 }
             }
+            // Then try legacy command handlers
+            else if (_legacyCommandHandlers != null && _legacyCommandHandlers.TryGetValue(action, out var handler))
+            {
+                try
+                {
+                    return handler(parameters);
+                }
+                catch (Exception e)
+                {
+                    return JsonUtility.CreateErrorResponse($"Error executing {action}: {e.Message}");
+                }
+            }
             else
             {
                 return JsonUtility.CreateErrorResponse($"Unknown command action: {action}");
             }
+        }
+        
+        // Support for legacy CommandData format
+        public string ExecuteCommand(CommandData command)
+        {
+            if (string.IsNullOrEmpty(command.type))
+            {
+                return JsonUtility.CreateErrorResponse("Command type is required");
+            }
+            
+            return ExecuteCommand(command.type, command.parameters);
         }
         
         protected virtual object[] ParseParameters(MethodInfo method, string parametersJson)
@@ -146,15 +192,24 @@ namespace UnityMCP
             }
             
             // Handle conversion to Unity types
-            if (targetType == typeof(UnityEngine.Vector3))
+            if (targetType == typeof(Vector3?))
             {
-                if (value is Dictionary<string, object> dict)
-                {
-                    float x = Convert.ToSingle(dict.GetValueOrDefault("x", 0));
-                    float y = Convert.ToSingle(dict.GetValueOrDefault("y", 0));
-                    float z = Convert.ToSingle(dict.GetValueOrDefault("z", 0));
-                    return new UnityEngine.Vector3(x, y, z);
-                }
+                Dictionary<string, object> dict = (value as JObject).ToObject<Dictionary<string, object>>();
+                float x = Convert.ToSingle(dict.GetValueOrDefault("x", 0));
+                float y = Convert.ToSingle(dict.GetValueOrDefault("y", 0));
+                float z = Convert.ToSingle(dict.GetValueOrDefault("z", 0));
+                return new Vector3(x, y, z);
+            }
+            
+            // Handle conversion to Unity types
+            if (targetType == typeof(Color?))
+            {
+                float[] list = (value as JObject).ToObject<float[]>();
+                float r = Convert.ToSingle(list[0]);
+                float g = Convert.ToSingle(list[1]);
+                float b = Convert.ToSingle(list[2]);
+                float a = Convert.ToSingle(list[3]);
+                return new Color(r, g, b, a);
             }
             
             // Handle conversion to lists and arrays
@@ -184,66 +239,9 @@ namespace UnityMCP
         {
             return JsonUtility.CreateSuccessResponse(result);
         }
-    }
-    
-    [AttributeUsage(AttributeTargets.Method)]
-    public class CommandMethodAttribute : Attribute
-    {
-        public string CommandName { get; }
         
-        public CommandMethodAttribute(string commandName = null)
-        {
-            CommandName = commandName;
-        }
-    }
-
-    public class CommandHandler : AbstractCommandHandler
-    {
-        private Dictionary<string, Func<string, string>> commandHandlers;
-
-        public CommandHandler()
-        {
-            // Initialize command handlers
-            commandHandlers = new Dictionary<string, Func<string, string>>
-            {
-                { "get_scene_info", GetSceneInfo },
-                { "get_object_info", GetObjectInfo },
-                { "create_object", CreateObject },
-                { "modify_object", ModifyObject },
-                { "delete_object", DeleteObject },
-                { "set_material", SetMaterial },
-                { "execute_unity_code", ExecuteUnityCode },
-                { "get_asset_categories", GetAssetCategories },
-                { "search_assets", SearchAssets },
-                { "download_asset", DownloadAsset }
-            };
-        }
-
-        public string ExecuteCommand(CommandData command)
-        {
-            if (string.IsNullOrEmpty(command.type))
-            {
-                return JsonUtility.CreateErrorResponse("Command type is required");
-            }
-
-            if (commandHandlers.TryGetValue(command.type, out var handler))
-            {
-                try
-                {
-                    return handler(command.parameters);
-                }
-                catch (Exception e)
-                {
-                    return JsonUtility.CreateErrorResponse($"Error executing {command.type}: {e.Message}");
-                }
-            }
-            else
-            {
-                return JsonUtility.CreateErrorResponse($"Unknown command type: {command.type}");
-            }
-        }
-
-        private string GetSceneInfo(string parameters)
+        // Legacy command handler methods
+        protected virtual string GetSceneInfo(string parameters)
         {
             // Get information about the current scene
             var sceneInfo = new Dictionary<string, object>
@@ -298,7 +296,7 @@ namespace UnityMCP
             return data;
         }
 
-        private string GetObjectInfo(string parameters)
+        protected virtual string GetObjectInfo(string parameters)
         {
             try
             {
@@ -323,7 +321,7 @@ namespace UnityMCP
             }
         }
 
-        private string CreateObject(string parameters)
+        protected virtual string CreateObject(string parameters)
         {
             try
             {
@@ -422,7 +420,7 @@ namespace UnityMCP
             }
         }
 
-        private string ModifyObject(string parameters)
+        protected virtual string ModifyObject(string parameters)
         {
             try
             {
@@ -475,7 +473,7 @@ namespace UnityMCP
             }
         }
 
-        private string DeleteObject(string parameters)
+        protected virtual string DeleteObject(string parameters)
         {
             try
             {
@@ -506,7 +504,7 @@ namespace UnityMCP
             }
         }
 
-        private string SetMaterial(string parameters)
+        protected virtual string SetMaterial(string parameters)
         {
             try
             {
@@ -577,14 +575,14 @@ namespace UnityMCP
             }
         }
 
-        private string ExecuteUnityCode(string parameters)
+        protected virtual string ExecuteUnityCode(string parameters)
         {
             // This is a placeholder - executing arbitrary C# code at runtime is complex in Unity
             // and would require a C# script evaluation library or custom implementation
             return JsonUtility.CreateErrorResponse("Executing arbitrary Unity code is not supported in this version");
         }
 
-        private string GetAssetCategories(string parameters)
+        protected virtual string GetAssetCategories(string parameters)
         {
             // Placeholder for asset store integration
             var categories = new List<string>
@@ -604,16 +602,27 @@ namespace UnityMCP
             });
         }
 
-        private string SearchAssets(string parameters)
+        protected virtual string SearchAssets(string parameters)
         {
             // Placeholder for asset store integration
             return JsonUtility.CreateErrorResponse("Asset store integration is not implemented in this version");
         }
 
-        private string DownloadAsset(string parameters)
+        protected virtual string DownloadAsset(string parameters)
         {
             // Placeholder for asset store integration
             return JsonUtility.CreateErrorResponse("Asset store integration is not implemented in this version");
+        }
+    }
+    
+    [AttributeUsage(AttributeTargets.Method)]
+    public class CommandMethodAttribute : Attribute
+    {
+        public string CommandName { get; }
+        
+        public CommandMethodAttribute(string commandName = null)
+        {
+            CommandName = commandName;
         }
     }
 
@@ -658,4 +667,4 @@ namespace UnityMCP
         public string materialName;
         public float[] color;
     }
-} 
+}

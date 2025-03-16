@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using Newtonsoft.Json;
 
 namespace UnityMCP
 {
@@ -25,18 +26,22 @@ namespace UnityMCP
 
         private TcpListener server;
         private Thread serverThread;
-        private ConcurrentQueue<Action> mainThreadActions = new ConcurrentQueue<Action>();
-        private CommandHandler commandHandler;
+        private Queue<ClientRequest> requestQueue = new Queue<ClientRequest>();
+        private object queueLock = new object();
         private List<TcpClient> clients = new List<TcpClient>();
         private object clientsLock = new object();
+
+        private class ClientRequest
+        {
+            public string Request { get; set; }
+            public TcpClient Client { get; set; }
+            public bool KeepConnectionOpen { get; set; } = true; // Add this flag to indicate whether to keep the connection open
+        }
 
         private void Awake()
         {
             // Make sure the GameObject persists between scene loads
             DontDestroyOnLoad(this.gameObject);
-            
-            // Initialize the command handler
-            commandHandler = new CommandHandler();
         }
 
         private void Start()
@@ -47,20 +52,101 @@ namespace UnityMCP
             }
         }
 
-        private void Update()
+        public void Update()
         {
-            // Execute any queued actions on the main thread
-            while (mainThreadActions.TryDequeue(out Action action))
+            // Process any pending requests on the main thread
+            ProcessRequestQueue();
+        }
+
+        private void ProcessRequestQueue()
+        {
+            ClientRequest request = null;
+            
+            // Get a request from the queue
+            lock (queueLock)
+            {
+                if (requestQueue.Count > 0)
+                {
+                    request = requestQueue.Dequeue();
+                }
+            }
+            
+            // Process the request on the main thread
+            if (request != null)
             {
                 try
                 {
-                    action();
+                    string response = ProcessCommand(request.Request);
+                    
+                    WriteToClient(response, request.Client);
                 }
                 catch (Exception e)
                 {
-                    Debug.LogError($"Error executing action on main thread: {e.Message}");
+                    Debug.LogError($"Error processing request: {e.Message}");
+                    
+                    // Send error response
+                    string errorResponse = CreateErrorResponse($"Error processing request: {e.Message}");
+                    try
+                    {
+                        WriteToClient(errorResponse, request.Client);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"Error sending error response: {ex.Message}");
+                    }
+                }
+                
+                // Only close the connection if specifically requested to do so
+                // This is the key change - we're not automatically closing connections anymore
+                if (!request.KeepConnectionOpen)
+                {
+                    try
+                    {
+                        request.Client.Close();
+                        
+                        // Remove the client from our list
+                        lock (clientsLock)
+                        {
+                            clients.Remove(request.Client);
+                            connectedClients = clients.Count;
+                        }
+                        Debug.Log("Client disconnected (connection closed by request)");
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogError($"Error closing client connection: {e.Message}");
+                    }
                 }
             }
+        }
+
+        private void WriteToClient(string response, TcpClient client)
+        {
+            try
+            {
+                // Send the response back to the client
+                byte[] responseBytes = Encoding.UTF8.GetBytes(response);
+                NetworkStream stream = client.GetStream();
+
+                stream.Write(responseBytes, 0, responseBytes.Length);
+                Debug.Log($"Sent response: {response}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error writing to client: {e.Message}");
+                throw; // Rethrow to handle it in the calling method
+            }
+        }
+
+        private string CreateErrorResponse(string message)
+        {
+            var response = new Dictionary<string, object>
+            {
+                { "status", "error" },
+                { "message", message }
+            };
+            
+            return JsonConvert.SerializeObject(response);
         }
 
         private void OnDestroy()
@@ -74,11 +160,13 @@ namespace UnityMCP
 
             try
             {
-                serverThread = new Thread(new ThreadStart(ServerLoop));
-                serverThread.IsBackground = true;
+                serverThread = new Thread(ServerLoop)
+                {
+                    IsBackground = true
+                };
                 serverThread.Start();
                 IsRunning = true;
-                statusMessage = $"Server started on {host}:{port}";
+                statusMessage = $"MCP Server started on {host}:{port}";
                 Debug.Log(statusMessage);
             }
             catch (Exception e)
@@ -137,7 +225,7 @@ namespace UnityMCP
             }
         }
 
-        private void ServerLoop()
+        public void ServerLoop()
         {
             try
             {
@@ -175,10 +263,8 @@ namespace UnityMCP
             {
                 if (IsRunning) // Only log if we didn't stop intentionally
                 {
-                    mainThreadActions.Enqueue(() => {
-                        statusMessage = $"Server error: {e.Message}";
-                        Debug.LogError(statusMessage);
-                    });
+                    statusMessage = $"Server error: {e.Message}";
+                    Debug.LogError(statusMessage);
                 }
             }
             finally
@@ -199,6 +285,10 @@ namespace UnityMCP
             
             try
             {
+                // Set longer timeouts to prevent premature disconnection
+                client.ReceiveTimeout = 30000; // 30 seconds
+                client.SendTimeout = 30000;    // 30 seconds
+                
                 while (IsRunning && client.Connected)
                 {
                     messageBuilder.Clear();
@@ -211,15 +301,19 @@ namespace UnityMCP
                         
                         // Check if we have a complete JSON object
                         string message = messageBuilder.ToString();
-                        if (JsonUtility.IsValidJson(message))
+                        if (IsValidJson(message))
                         {
-                            // Process the command
-                            string response = ProcessCommand(message);
-                            
-                            // Send the response
-                            byte[] responseData = Encoding.UTF8.GetBytes(response);
-                            stream.Write(responseData, 0, responseData.Length);
-                            
+                            // Queue the request for processing on the main thread
+                            lock (queueLock)
+                            {
+                                requestQueue.Enqueue(new ClientRequest
+                                {
+                                    Request = message,
+                                    Client = client,
+                                    KeepConnectionOpen = true // Keep the connection open by default
+                                });
+                            }
+
                             // Clear the buffer for the next message
                             messageBuilder.Clear();
                             break;
@@ -229,22 +323,24 @@ namespace UnityMCP
                     // If we didn't read any bytes, the client disconnected
                     if (bytesRead == 0)
                     {
+                        Debug.Log("Client sent 0 bytes - likely disconnected");
                         break;
                     }
                 }
             }
             catch (Exception e)
             {
-                mainThreadActions.Enqueue(() => {
-                    Debug.LogWarning($"Client communication error: {e.Message}");
-                });
+                Debug.LogWarning($"Client communication error: {e.Message}");
             }
             finally
             {
                 // Clean up
                 try
                 {
-                    stream.Close();
+                    if (stream != null)
+                    {
+                        stream.Close();
+                    }
                     client.Close();
                 }
                 catch (Exception) { }
@@ -255,10 +351,33 @@ namespace UnityMCP
                     connectedClients = clients.Count;
                 }
                 
-                mainThreadActions.Enqueue(() => {
-                    Debug.Log("Client disconnected");
-                });
+                Debug.Log("Client disconnected");
             }
+        }
+
+        // Helper method to check if a string is valid JSON
+        private bool IsValidJson(string str)
+        {
+            if (string.IsNullOrEmpty(str))
+                return false;
+
+            str = str.Trim();
+            if ((str.StartsWith("{") && str.EndsWith("}")) || // For object
+                (str.StartsWith("[") && str.EndsWith("]")))   // For array
+            {
+                try
+                {
+                    // Attempt to parse it with Newtonsoft.Json
+                    JsonConvert.DeserializeObject(str);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            
+            return false;
         }
 
         private string ProcessCommand(string commandJson)
@@ -266,35 +385,33 @@ namespace UnityMCP
             try
             {
                 // Parse the command
-                var command = JsonUtility.FromJson<CommandData>(commandJson);
+                var command = JsonConvert.DeserializeObject<CommandData>(commandJson);
                 
-                // Execute the command on the main thread and wait for the result
-                string result = null;
-                ManualResetEvent waitHandle = new ManualResetEvent(false);
+                if (command == null || string.IsNullOrEmpty(command.type))
+                {
+                    return CreateErrorResponse("Command type is required");
+                }
                 
-                mainThreadActions.Enqueue(() => {
-                    try
-                    {
-                        result = commandHandler.ExecuteCommand(command);
-                    }
-                    catch (Exception e)
-                    {
-                        result = JsonUtility.CreateErrorResponse($"Error executing command: {e.Message}");
-                    }
-                    finally
-                    {
-                        waitHandle.Set();
-                    }
-                });
+                Debug.Log($"Processing command: {command.type} with parameters: {command.parameters}");
                 
-                // Wait for the command to be executed
-                waitHandle.WaitOne();
+                // Map the command to the appropriate subsystem and action
+                string subsystem = "core"; // Default to core
+                string action = command.type;
                 
-                return result;
+                // Check if the command has a subsystem prefix (e.g., "core.GetSystemInfo")
+                if (command.type.Contains("."))
+                {
+                    var parts = command.type.Split(new[] { '.' }, 2);
+                    subsystem = parts[0].ToLower();
+                    action = parts[1];
+                }
+                
+                // Execute the command using the brain
+                return UnityMCPBrain.Instance.ExecuteCommand(subsystem, action, command.parameters);
             }
             catch (Exception e)
             {
-                return JsonUtility.CreateErrorResponse($"Error processing command: {e.Message}");
+                return CreateErrorResponse($"Error processing command: {e.Message}");
             }
         }
     }
@@ -305,4 +422,4 @@ namespace UnityMCP
         public string type;
         public string parameters;
     }
-} 
+}

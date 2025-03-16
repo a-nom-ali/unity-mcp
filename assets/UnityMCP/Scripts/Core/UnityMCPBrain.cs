@@ -15,6 +15,7 @@ namespace UnityMCP
     /// The central intelligence system for UnityMCP that coordinates all subsystems
     /// and provides high-level reasoning about Unity operations.
     /// </summary>
+    [ExecuteInEditMode]
     public class UnityMCPBrain : MonoBehaviour
     {
         private static UnityMCPBrain _instance;
@@ -23,12 +24,17 @@ namespace UnityMCP
         {
             get
             {
+                _instance = FindFirstObjectByType<UnityMCPBrain>();
                 if (_instance == null)
                 {
                     GameObject go = new GameObject("UnityMCPBrain");
                     _instance = go.AddComponent<UnityMCPBrain>();
-                    DontDestroyOnLoad(go);
+                    if (Application.isPlaying)
+                        DontDestroyOnLoad(go);
                 }
+
+                if (_instance._commandHandlers.Count == 0 || _instance._activeSubsystems.Count == 0)
+                    _instance.Initialize();
                 return _instance;
             }
         }
@@ -62,7 +68,8 @@ namespace UnityMCP
             }
             
             _instance = this;
-            DontDestroyOnLoad(gameObject);
+            if (Application.isPlaying)
+                DontDestroyOnLoad(gameObject);
             
             // Initialize the brain
             Initialize();
@@ -70,10 +77,34 @@ namespace UnityMCP
 
         private void Initialize()
         {
-            if (_initialized) return;
+            if (!Uninitialized) return;
             
             Log("Initializing UnityMCP Brain...", LogLevel.Info);
+         
+            // Initialize command handlers
+            InitializeCommandHandlers();
             
+            // Initialize context
+            _context.Initialize();
+            
+            _initialized = true;
+            Log("UnityMCP Brain initialized successfully", LogLevel.Info);
+            
+            // Fire initialization event
+            RaiseEvent("brain.initialized", null);
+        }
+
+        private void InitializeCommandHandlers()
+        {
+            _commandHandlers = new Dictionary<string, CommandHandler>(StringComparer.OrdinalIgnoreCase);
+            
+            // Add core command handler
+            var coreHandler = new CoreCommandHandler();
+            coreHandler.SetContext(_context);
+            _commandHandlers["core"] = coreHandler;
+            
+            // Add other handlers as needed
+            Debug.Log("UnityMCPBrain initialized");
             // Register core command handlers
             RegisterCommandHandler("core", new CoreCommandHandler());
             RegisterCommandHandler("scene", new SceneCommandHandler());
@@ -86,16 +117,53 @@ namespace UnityMCP
                 DiscoverAndInitializeSubsystems();
             }
             
-            // Initialize context
-            _context.Initialize();
-            
-            _initialized = true;
-            Log("UnityMCP Brain initialized successfully", LogLevel.Info);
-            
-            // Fire initialization event
-            RaiseEvent("brain.initialized", null);
+            Debug.Log($"Initialized {_commandHandlers.Count} command handlers");
         }
-
+        
+        public string ExecuteCommand(string commandJson)
+        {
+            if (Uninitialized)
+                Initialize();
+            try
+            {
+                Debug.Log($"Executing command: {commandJson}");
+                
+                // Parse the command
+                CommandData command = JsonUtility.FromJson<CommandData>(commandJson);
+                
+                if (command == null)
+                {
+                    return JsonUtility.CreateErrorResponse("Invalid command format");
+                }
+                
+                // Extract the command category and action
+                string category = "core"; // Default to core
+                string action = command.type;
+                
+                // Check if the command has a category prefix (category.action)
+                if (action.Contains("."))
+                {
+                    var parts = action.Split(new[] { '.' }, 2);
+                    category = parts[0].ToLower();
+                    action = parts[1];
+                }
+                
+                // Find the appropriate handler
+                if (_commandHandlers.TryGetValue(category, out var handler))
+                {
+                    return handler.ExecuteCommand(action, command.parameters);
+                }
+                else
+                {
+                    return JsonUtility.CreateErrorResponse($"Unknown command category: {category}");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error executing command: {e.Message}\n{e.StackTrace}");
+                return JsonUtility.CreateErrorResponse($"Error executing command: {e.Message}");
+            }
+        }
         private void DiscoverAndInitializeSubsystems()
         {
             Log("Discovering subsystems...", LogLevel.Debug);
@@ -154,12 +222,72 @@ namespace UnityMCP
             Log($"Registered command handler for domain: {domain}", LogLevel.Debug);
         }
 
+        public string ExecuteCommand(string subsystem, string action, string parameters)
+        {
+            if (Uninitialized)
+                Initialize();
+            try
+            {
+                Log($"Executing command: {subsystem}.{action}", LogLevel.Debug);
+            
+                // Find the appropriate handler
+                if (_commandHandlers.TryGetValue(subsystem, out var handler))
+                {
+                    string result = handler.ExecuteCommand(action, parameters);
+                
+                    // Record in history
+                    CommandData command = new CommandData
+                    {
+                        type = $"{subsystem}.{action}",
+                        parameters = parameters
+                    };
+                    _history.RecordCommand(command, result);
+                
+                    // Raise event
+                    RaiseEvent("command.executed", new { Command = command, Result = result });
+                
+                    return result;
+                }
+                else
+                {
+                    return JsonUtility.CreateErrorResponse($"Unknown command category: {subsystem}");
+                }
+            }
+            catch (Exception e)
+            {
+                LogError($"Error executing command {subsystem}.{action}: {e.Message}");
+                return JsonUtility.CreateErrorResponse($"Error executing command: {e.Message}");
+            }
+        }
+
+        public bool Uninitialized => !_initialized || _instance._commandHandlers.Count == 0 ||
+                                     _instance._activeSubsystems.Count == 0;
+
+        // Ensure we have a method to get all subsystems
+        public List<IUnityMCPSubsystem> GetSubsystems()
+        {
+            return new List<IUnityMCPSubsystem>(_subsystems.Values);
+        }
+
+        // Add this method to get a subsystem by name
+        public IUnityMCPSubsystem GetSubsystemByName(string subsystemName)
+        {
+            foreach (var subsystem in _subsystems.Values)
+            {
+                if (subsystem.GetType().Name.ToLower() == subsystemName.ToLower() ||
+                    subsystem.GetType().Name.ToLower() == $"{subsystemName}subsystem".ToLower())
+                {
+                    return subsystem;
+                }
+            }
+        
+            return null;
+        }
+
         public string ExecuteCommand(CommandData command)
         {
-            if (!_initialized)
-            {
-                return JsonUtility.CreateErrorResponse("UnityMCP Brain not initialized");
-            }
+            if (Uninitialized)
+                Initialize();
             
             Log($"Executing command: {command.type}", LogLevel.Debug);
             

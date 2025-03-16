@@ -593,7 +593,7 @@ namespace UnityMCP
             {
                 result["rendererInfo"] = new Dictionary<string, object>
                 {
-                    { "materialCount", renderer.materials.Length },
+                    { "materialCount", renderer.sharedMaterials.Length },
                     { "isVisible", renderer.isVisible },
                     { "bounds", new Dictionary<string, object>
                         {
@@ -616,18 +616,18 @@ namespace UnityMCP
                 };
                 
                 // Get material info
-                if (renderer.material != null)
+                if (renderer.sharedMaterial != null)
                 {
                     result["material"] = new Dictionary<string, object>
                     {
-                        { "name", renderer.material.name },
-                        { "shader", renderer.material.shader.name },
-                        { "color", renderer.material.HasProperty("_Color") ? new Dictionary<string, float>
+                        { "name", renderer.sharedMaterial.name },
+                        { "shader", renderer.sharedMaterial.shader.name },
+                        { "color", renderer.sharedMaterial.HasProperty("_Color") ? new Dictionary<string, float>
                             {
-                                { "r", renderer.material.color.r },
-                                { "g", renderer.material.color.g },
-                                { "b", renderer.material.color.b },
-                                { "a", renderer.material.color.a }
+                                { "r", renderer.sharedMaterial.color.r },
+                                { "g", renderer.sharedMaterial.color.g },
+                                { "b", renderer.sharedMaterial.color.b },
+                                { "a", renderer.sharedMaterial.color.a }
                             } : null
                         }
                     };

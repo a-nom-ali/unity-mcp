@@ -1,6 +1,8 @@
+using System.Collections;
 using UnityEngine;
 using UnityEditor;
 using UnityMCP;
+using Unity.EditorCoroutines.Editor;
 
 namespace UnityMCPEditor
 {
@@ -8,6 +10,7 @@ namespace UnityMCPEditor
     public class UnityMCPServerEditor : Editor
     {
         private bool showAdvancedSettings = false;
+        private EditorCoroutine editorLoop;
 
         public override void OnInspectorGUI()
         {
@@ -39,12 +42,14 @@ namespace UnityMCPEditor
             if (GUILayout.Button("Start Server", GUILayout.Height(30)))
             {
                 server.StartServer();
+                editorLoop = EditorCoroutineUtility.StartCoroutineOwnerless(EditorLoopCoroutine());
             }
             
             GUI.enabled = server.IsRunning;
             if (GUILayout.Button("Stop Server", GUILayout.Height(30)))
             {
                 server.StopServer();
+                EditorCoroutineUtility.StopCoroutine(editorLoop);
             }
             
             GUI.enabled = true;
@@ -82,6 +87,16 @@ namespace UnityMCPEditor
             
             // Apply changes
             serializedObject.ApplyModifiedProperties();
+        }
+
+        private IEnumerator EditorLoopCoroutine()
+        {
+            while (editorLoop != null)
+            {
+                UnityMCPServer server = (UnityMCPServer)target;
+                server.Update();
+                yield return new WaitForSeconds(1f/60f);
+            }
         }
     }
 
