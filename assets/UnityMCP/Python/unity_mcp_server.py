@@ -123,15 +123,16 @@ class UnityConnection:
 
             response_data = self.receive_full_response(self.sock)
             logger.info(f"Received {len(response_data)} bytes of data")
+            logger.info(response_data.decode('utf-8'))
 
             response = json.loads(response_data.decode('utf-8'))
-            logger.info(f"Response parsed, status: {response.get('status', 'unknown')}")
+            logger.info(f"Response parsed, status: {response.get('success', 'unknown')}")
 
-            if response.get("status") == "error":
-                logger.error(f"Unity error: {response.get('message')}")
-                raise Exception(response.get("message", "Unknown error from Unity"))
+            if not response.get("success"):
+                logger.error(f"Unity error: {response.get('error')}")
+                raise Exception(response.get("error", "Unknown error from Unity"))
 
-            return response.get("result", {})
+            return response.get("data", {})
         except socket.timeout:
             logger.error("Socket timeout while waiting for response from Unity")
             self.sock = None
