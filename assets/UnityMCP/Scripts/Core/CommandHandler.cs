@@ -204,7 +204,9 @@ namespace UnityMCP
             // Handle conversion to Unity types
             if (targetType == typeof(Color?))
             {
-                float[] list = (value as JObject).ToObject<float[]>();
+                float[] list = value.GetType() == typeof(JArray) 
+                    ? (value as JArray).ToObject<float[]>() 
+                    : (value as JObject).ToObject<float[]>();
                 float r = Convert.ToSingle(list[0]);
                 float g = Convert.ToSingle(list[1]);
                 float b = Convert.ToSingle(list[2]);

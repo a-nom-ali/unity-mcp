@@ -45,7 +45,7 @@ namespace UnityMCP
                     if (material == null)
                     {
                         // Create a new material with standard shader
-                        material = new Material(Shader.Find("Standard"));
+                        material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
                         material.name = materialName;
                     }
                 }
@@ -78,7 +78,7 @@ namespace UnityMCP
         }
         
         [CommandMethod]
-        public Dictionary<string, object> CreateMaterial(string name, Color? color = null, string shader = "Standard")
+        public Dictionary<string, object> CreateMaterial(string name, Color? color = null, string shader = "Universal Render Pipeline/Lit")
         {
             // Find the shader
             Shader shaderObj = Shader.Find(shader);

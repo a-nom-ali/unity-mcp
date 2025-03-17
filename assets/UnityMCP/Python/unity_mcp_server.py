@@ -435,6 +435,45 @@ def set_material(
 
 
 @mcp.tool()
+def create_material(
+        ctx: Context,
+        material_name: str = None,
+        color: List[float] = None,
+        shader: str = "Standard"
+) -> str:
+    """Apply or create a material for an object in the Unity scene.
+
+    Args:
+        material_name: The name of the material to apply or create.
+        color: The [r, g, b, a] color values (0.0-1.0) for the material. Alpha is optional.
+        shader: The name of the shader to use.
+
+    Returns:
+        A JSON string confirming the material application.
+    """
+    try:
+        connection = get_unity_connection()
+
+        params = {
+            # "objectName": object_name
+        }
+
+        if material_name:
+            params["name"] = material_name
+
+        if color:
+            params["color"] = color
+
+        if shader:
+            params["shader"] = shader
+
+        result = connection.send_command("material.CreateMaterial", params)
+        return json.dumps(result)
+    except Exception as e:
+        return f"Error creating material: {str(e)}"
+
+
+@mcp.tool()
 def create_light(
         ctx: Context,
         type: str = "Point",
