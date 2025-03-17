@@ -629,6 +629,12 @@ namespace UnityMCP
         }
         
         [CommandMethod]
+        public Dictionary<string, object> GetSuggestions()
+        {
+            return GetCreativeSuggestion();
+        }
+        
+        [CommandMethod]
         public Dictionary<string, object> GetCreativeSuggestion()
         {
             string suggestion = _assistant.GenerateCreativeSuggestion();
