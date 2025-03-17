@@ -346,5 +346,152 @@ namespace UnityMCP.Subsystems
             };
             #endif
         }
+        
+        [CommandMethod]
+        public Dictionary<string, object> PlayAnimation(string objectName, string animationName = null, float crossfadeTime = 0.3f)
+        {
+            GameObject obj = GameObject.Find(objectName);
+            if (obj == null)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", $"Object '{objectName}' not found" }
+                };
+            }
+            
+            // Try with Animation component (legacy)
+            Animation animation = obj.GetComponent<Animation>();
+            if (animation != null)
+            {
+                // If no animation name is specified, play the default clip
+                if (string.IsNullOrEmpty(animationName))
+                {
+                    if (animation.clip != null)
+                    {
+                        animationName = animation.clip.name;
+                    }
+                    else if (animation.GetClipCount() > 0)
+                    {
+                        // Get the first clip
+                        foreach (AnimationState state in animation)
+                        {
+                            animationName = state.name;
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            { "error", $"No animation clips found on object '{objectName}'" }
+                        };
+                    }
+                }
+                
+                // Check if the clip exists
+                if (!animation.GetClip(animationName))
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "error", $"Animation clip '{animationName}' not found on object '{objectName}'" }
+                    };
+                }
+                
+                // Play the animation with crossfade if specified
+                if (crossfadeTime > 0)
+                {
+                    animation.CrossFade(animationName, crossfadeTime);
+                }
+                else
+                {
+                    animation.Play(animationName);
+                }
+                
+                return new Dictionary<string, object>
+                {
+                    { "objectName", objectName },
+                    { "animationName", animationName },
+                    { "type", "Legacy" },
+                    { "playing", true }
+                };
+            }
+            
+            // Try with Animator component (Mecanim)
+            Animator animator = obj.GetComponent<Animator>();
+            if (animator != null)
+            {
+                // If no animation name is specified, we need to check for parameters
+                if (string.IsNullOrEmpty(animationName))
+                {
+                    // Reset to default state
+                    animator.Play("Default", 0, 0f);
+                    animator.speed = 1.0f;  // Ensure animation is playing at normal speed
+                    
+                    return new Dictionary<string, object>
+                    {
+                        { "objectName", objectName },
+                        { "animationName", "Default" },
+                        { "type", "Mecanim" },
+                        { "playing", true }
+                    };
+                }
+                
+                // Check if the state exists in the animator
+                int stateHash = Animator.StringToHash(animationName);
+                if (!animator.HasState(0, stateHash))
+                {
+                    // Try to find a parameter with this name (might be a trigger)
+                    bool parameterFound = false;
+                    foreach (AnimatorControllerParameter param in animator.parameters)
+                    {
+                        if (param.name == animationName)
+                        {
+                            if (param.type == AnimatorControllerParameterType.Trigger)
+                            {
+                                animator.SetTrigger(animationName);
+                                parameterFound = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (!parameterFound)
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            { "error", $"Animation state or parameter '{animationName}' not found on object '{objectName}'" }
+                        };
+                    }
+                }
+                else
+                {
+                    // Play the animation state with crossfade if specified
+                    if (crossfadeTime > 0)
+                    {
+                        animator.CrossFade(animationName, crossfadeTime);
+                    }
+                    else
+                    {
+                        animator.Play(animationName);
+                    }
+                }
+                
+                // Ensure animation is playing at normal speed
+                animator.speed = 1.0f;
+                
+                return new Dictionary<string, object>
+                {
+                    { "objectName", objectName },
+                    { "animationName", animationName },
+                    { "type", "Mecanim" },
+                    { "playing", true }
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                { "error", $"Object '{objectName}' does not have Animation or Animator component" }
+            };
+        }
     }
 } 

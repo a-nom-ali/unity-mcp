@@ -12,6 +12,15 @@ namespace UnityMCP
         [CommandMethod]
         public Dictionary<string, object> SetMaterial(string objectName, string materialName = null, Color? color = null)
         {
+            // Validate object name
+            if (string.IsNullOrEmpty(objectName))
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", "Object name cannot be null or empty" }
+                };
+            }
+            
             GameObject obj = GameObject.Find(objectName);
             if (obj == null)
             {
@@ -45,7 +54,19 @@ namespace UnityMCP
                     if (material == null)
                     {
                         // Create a new material with standard shader
-                        material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+                        if (shader == null)
+                        {
+                            // Fallback to Standard shader if URP is not available
+                            shader = Shader.Find("Standard");
+                            if (shader == null)
+                            {
+                                // Ultimate fallback
+                                shader = Shader.Find("Diffuse");
+                            }
+                        }
+                        
+                        material = new Material(shader);
                         material.name = materialName;
                     }
                 }
@@ -55,14 +76,35 @@ namespace UnityMCP
             }
             else
             {
-                // Create a new material based on the current one
-                material = new Material(renderer.sharedMaterial);
+                // Create a new material based on the current one or use a default if null
+                if (renderer.sharedMaterial != null)
+                {
+                    material = new Material(renderer.sharedMaterial);
+                }
+                else
+                {
+                    Shader shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard") ?? Shader.Find("Diffuse");
+                    material = new Material(shader);
+                    material.name = "Default Material";
+                }
             }
             
             // Apply color if provided
             if (color.HasValue)
             {
-                material.color = color.Value;
+                // Ensure we're setting the color to the right property based on shader
+                if (material.HasProperty("_BaseColor")) // URP
+                {
+                    material.SetColor("_BaseColor", color.Value);
+                }
+                else if (material.HasProperty("_Color")) // Standard/Legacy
+                {
+                    material.SetColor("_Color", color.Value);
+                }
+                else
+                {
+                    material.color = color.Value;
+                }
             }
             
             // Apply the material
@@ -80,14 +122,34 @@ namespace UnityMCP
         [CommandMethod]
         public Dictionary<string, object> CreateMaterial(string name, Color? color = null, string shader = "Universal Render Pipeline/Lit")
         {
+            // Validate name
+            if (string.IsNullOrEmpty(name))
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", "Material name cannot be null or empty" }
+                };
+            }
+            
             // Find the shader
             Shader shaderObj = Shader.Find(shader);
             if (shaderObj == null)
             {
-                return new Dictionary<string, object>
+                // Try fallback shaders
+                shaderObj = Shader.Find("Standard");
+                if (shaderObj == null)
                 {
-                    { "error", $"Shader '{shader}' not found" }
-                };
+                    shaderObj = Shader.Find("Diffuse");
+                    if (shaderObj == null)
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            { "error", $"Shader '{shader}' not found and no fallback shaders available" }
+                        };
+                    }
+                }
+                
+                Debug.LogWarning($"Shader '{shader}' not found. Using '{shaderObj.name}' instead.");
             }
             
             // Create the material
@@ -97,7 +159,19 @@ namespace UnityMCP
             // Set color if provided
             if (color.HasValue)
             {
-                material.color = color.Value;
+                // Ensure we're setting the color to the right property based on shader
+                if (material.HasProperty("_BaseColor")) // URP
+                {
+                    material.SetColor("_BaseColor", color.Value);
+                }
+                else if (material.HasProperty("_Color")) // Standard/Legacy
+                {
+                    material.SetColor("_Color", color.Value);
+                }
+                else
+                {
+                    material.color = color.Value;
+                }
             }
             
             // Save the material in the editor
@@ -132,23 +206,29 @@ namespace UnityMCP
                 string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guid);
                 Material material = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(path);
                 
-                materials.Add(new Dictionary<string, object>
+                if (material != null)
                 {
-                    { "name", material.name },
-                    { "path", path },
-                    { "shader", material.shader.name }
-                });
+                    materials.Add(new Dictionary<string, object>
+                    {
+                        { "name", material.name },
+                        { "path", path },
+                        { "shader", material.shader != null ? material.shader.name : "Unknown" }
+                    });
+                }
             }
             #else
             // At runtime, we can only find materials that are loaded
             var loadedMaterials = Resources.FindObjectsOfTypeAll<Material>();
             foreach (var material in loadedMaterials)
             {
-                materials.Add(new Dictionary<string, object>
+                if (material != null)
                 {
-                    { "name", material.name },
-                    { "shader", material.shader.name }
-                });
+                    materials.Add(new Dictionary<string, object>
+                    {
+                        { "name", material.name },
+                        { "shader", material.shader != null ? material.shader.name : "Unknown" }
+                    });
+                }
             }
             #endif
             
@@ -162,6 +242,31 @@ namespace UnityMCP
         [CommandMethod]
         public Dictionary<string, object> SetMaterialProperty(string objectName, string propertyName, object value)
         {
+            // Validate parameters
+            if (string.IsNullOrEmpty(objectName))
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", "Object name cannot be null or empty" }
+                };
+            }
+            
+            if (string.IsNullOrEmpty(propertyName))
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", "Property name cannot be null or empty" }
+                };
+            }
+            
+            if (value == null)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", "Property value cannot be null" }
+                };
+            }
+            
             GameObject obj = GameObject.Find(objectName);
             if (obj == null)
             {
@@ -177,6 +282,15 @@ namespace UnityMCP
                 return new Dictionary<string, object>
                 {
                     { "error", $"Object '{objectName}' does not have a Renderer component" }
+                };
+            }
+            
+            // Check if the renderer has a material
+            if (renderer.sharedMaterial == null)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", $"Object '{objectName}' does not have a material assigned" }
                 };
             }
             
@@ -209,6 +323,21 @@ namespace UnityMCP
                     material.SetColor(propertyName, colorValue);
                     propertySet = true;
                 }
+                else
+                {
+                    // Try standard color property names as fallbacks
+                    string[] colorPropertyNames = new[] { "_Color", "_BaseColor", "_MainColor" };
+                    foreach (string colorProp in colorPropertyNames)
+                    {
+                        if (material.HasProperty(colorProp))
+                        {
+                            material.SetColor(colorProp, colorValue);
+                            propertySet = true;
+                            propertyName = colorProp; // Update the property name for the response
+                            break;
+                        }
+                    }
+                }
             }
             else if (value is Vector4 vector4Value)
             {
@@ -223,10 +352,26 @@ namespace UnityMCP
                 // Try to parse as color
                 if (ColorUtility.TryParseHtmlString(stringValue, out Color parsedColor))
                 {
+                    // Try the specified property first
                     if (material.HasProperty(propertyName))
                     {
                         material.SetColor(propertyName, parsedColor);
                         propertySet = true;
+                    }
+                    else
+                    {
+                        // Try standard color property names as fallbacks
+                        string[] colorPropertyNames = new[] { "_Color", "_BaseColor", "_MainColor" };
+                        foreach (string colorProp in colorPropertyNames)
+                        {
+                            if (material.HasProperty(colorProp))
+                            {
+                                material.SetColor(colorProp, parsedColor);
+                                propertySet = true;
+                                propertyName = colorProp; // Update the property name for the response
+                                break;
+                            }
+                        }
                     }
                 }
                 // Try to parse as texture path
@@ -238,6 +383,21 @@ namespace UnityMCP
                         material.SetTexture(propertyName, texture);
                         propertySet = true;
                     }
+                    else if (texture != null)
+                    {
+                        // Try standard texture property names as fallbacks
+                        string[] texturePropertyNames = new[] { "_MainTex", "_BaseMap" };
+                        foreach (string texProp in texturePropertyNames)
+                        {
+                            if (material.HasProperty(texProp))
+                            {
+                                material.SetTexture(texProp, texture);
+                                propertySet = true;
+                                propertyName = texProp; // Update the property name for the response
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             
@@ -245,7 +405,7 @@ namespace UnityMCP
             {
                 return new Dictionary<string, object>
                 {
-                    { "error", $"Could not set property '{propertyName}' on material" }
+                    { "error", $"Could not set property '{propertyName}' on material. Property not found or value type mismatch." }
                 };
             }
             
@@ -256,7 +416,8 @@ namespace UnityMCP
             {
                 { "objectName", objectName },
                 { "propertyName", propertyName },
-                { "set", true }
+                { "set", true },
+                { "materialInfo", GetMaterialInfo(material) }
             };
         }
         
@@ -268,12 +429,15 @@ namespace UnityMCP
             var allShaders = Resources.FindObjectsOfTypeAll<Shader>();
             foreach (var shader in allShaders)
             {
-                shaders.Add(new Dictionary<string, object>
+                if (shader != null)
                 {
-                    { "name", shader.name },
-                    { "renderQueue", shader.renderQueue },
-                    { "isSupported", shader.isSupported }
-                });
+                    shaders.Add(new Dictionary<string, object>
+                    {
+                        { "name", shader.name },
+                        { "renderQueue", shader.renderQueue },
+                        { "isSupported", shader.isSupported }
+                    });
+                }
             }
             
             return new Dictionary<string, object>
@@ -292,19 +456,71 @@ namespace UnityMCP
             Color? emission = null, 
             string albedoTexture = null)
         {
-            // Create a new material with standard shader
-            Material material = new Material(Shader.Find("Standard"));
-            material.name = name;
-            
-            // Set properties
-            if (albedo.HasValue)
+            // Validate name
+            if (string.IsNullOrEmpty(name))
             {
-                material.color = albedo.Value;
+                return new Dictionary<string, object>
+                {
+                    { "error", "Material name cannot be null or empty" }
+                };
             }
             
-            material.SetFloat("_Metallic", Mathf.Clamp01(metallic));
-            material.SetFloat("_Glossiness", Mathf.Clamp01(smoothness));
+            // Find appropriate shader
+            Shader shader = Shader.Find("Standard");
+            if (shader == null)
+            {
+                // Try URP shader as fallback
+                shader = Shader.Find("Universal Render Pipeline/Lit");
+                if (shader == null)
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "error", "Could not find Standard or URP shader for PBR material" }
+                    };
+                }
+            }
             
+            // Create a new material with standard shader
+            Material material = new Material(shader);
+            material.name = name;
+            
+            // Set properties based on shader type
+            bool isURP = shader.name.Contains("Universal Render Pipeline");
+            
+            // Set albedo/base color
+            if (albedo.HasValue)
+            {
+                if (isURP)
+                {
+                    material.SetColor("_BaseColor", albedo.Value);
+                }
+                else
+                {
+                    material.SetColor("_Color", albedo.Value);
+                }
+            }
+            
+            // Set metallic
+            if (isURP)
+            {
+                material.SetFloat("_Metallic", Mathf.Clamp01(metallic));
+            }
+            else
+            {
+                material.SetFloat("_Metallic", Mathf.Clamp01(metallic));
+            }
+            
+            // Set smoothness
+            if (isURP)
+            {
+                material.SetFloat("_Smoothness", Mathf.Clamp01(smoothness));
+            }
+            else
+            {
+                material.SetFloat("_Glossiness", Mathf.Clamp01(smoothness));
+            }
+            
+            // Set emission
             if (emission.HasValue)
             {
                 material.SetColor("_EmissionColor", emission.Value);
@@ -317,7 +533,14 @@ namespace UnityMCP
                 Texture2D texture = Resources.Load<Texture2D>(albedoTexture);
                 if (texture != null)
                 {
-                    material.SetTexture("_MainTex", texture);
+                    if (isURP)
+                    {
+                        material.SetTexture("_BaseMap", texture);
+                    }
+                    else
+                    {
+                        material.SetTexture("_MainTex", texture);
+                    }
                 }
             }
             
@@ -342,17 +565,28 @@ namespace UnityMCP
         
         private Dictionary<string, object> GetMaterialInfo(Material material)
         {
+            if (material == null)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", "Material is null" }
+                };
+            }
+            
             var result = new Dictionary<string, object>
             {
                 { "name", material.name },
-                { "shader", material.shader.name },
+                { "shader", material.shader != null ? material.shader.name : "Unknown" },
                 { "renderQueue", material.renderQueue }
             };
             
-            // Add common properties
-            if (material.HasProperty("_Color"))
+            // Determine if this is a URP or Standard shader
+            bool isURP = material.shader != null && material.shader.name.Contains("Universal Render Pipeline");
+            
+            // Add color property
+            if (isURP && material.HasProperty("_BaseColor"))
             {
-                Color color = material.color;
+                Color color = material.GetColor("_BaseColor");
                 result["color"] = new Dictionary<string, float>
                 {
                     { "r", color.r },
@@ -360,9 +594,31 @@ namespace UnityMCP
                     { "b", color.b },
                     { "a", color.a }
                 };
+                result["hexColor"] = "#" + ColorUtility.ToHtmlStringRGBA(color);
+            }
+            else if (material.HasProperty("_Color"))
+            {
+                Color color = material.GetColor("_Color");
+                result["color"] = new Dictionary<string, float>
+                {
+                    { "r", color.r },
+                    { "g", color.g },
+                    { "b", color.b },
+                    { "a", color.a }
+                };
+                result["hexColor"] = "#" + ColorUtility.ToHtmlStringRGBA(color);
             }
             
-            if (material.HasProperty("_MainTex"))
+            // Add texture property
+            if (isURP && material.HasProperty("_BaseMap"))
+            {
+                Texture mainTex = material.GetTexture("_BaseMap");
+                if (mainTex != null)
+                {
+                    result["mainTexture"] = mainTex.name;
+                }
+            }
+            else if (material.HasProperty("_MainTex"))
             {
                 Texture mainTex = material.GetTexture("_MainTex");
                 if (mainTex != null)
@@ -371,8 +627,20 @@ namespace UnityMCP
                 }
             }
             
-            // Add PBR properties for Standard shader
-            if (material.shader.name.Contains("Standard"))
+            // Add PBR properties
+            if (isURP)
+            {
+                if (material.HasProperty("_Metallic"))
+                {
+                    result["metallic"] = material.GetFloat("_Metallic");
+                }
+                
+                if (material.HasProperty("_Smoothness"))
+                {
+                    result["smoothness"] = material.GetFloat("_Smoothness");
+                }
+            }
+            else if (material.shader.name.Contains("Standard"))
             {
                 if (material.HasProperty("_Metallic"))
                 {
@@ -383,21 +651,24 @@ namespace UnityMCP
                 {
                     result["smoothness"] = material.GetFloat("_Glossiness");
                 }
-                
-                if (material.HasProperty("_EmissionColor"))
+            }
+            
+            // Add emission property
+            if (material.HasProperty("_EmissionColor"))
+            {
+                Color emission = material.GetColor("_EmissionColor");
+                result["emission"] = new Dictionary<string, float>
                 {
-                    Color emission = material.GetColor("_EmissionColor");
-                    result["emission"] = new Dictionary<string, float>
-                    {
-                        { "r", emission.r },
-                        { "g", emission.g },
-                        { "b", emission.b },
-                        { "a", emission.a }
-                    };
-                }
+                    { "r", emission.r },
+                    { "g", emission.g },
+                    { "b", emission.b },
+                    { "a", emission.a }
+                };
+                result["emissionHexColor"] = "#" + ColorUtility.ToHtmlStringRGBA(emission);
+                result["emissionEnabled"] = material.IsKeywordEnabled("_EMISSION");
             }
             
             return result;
         }
     }
-} 
+}

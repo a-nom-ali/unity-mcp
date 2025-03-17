@@ -406,6 +406,466 @@ namespace UnityMCP.Subsystems
             #endif
         }
         
+        [CommandMethod]
+        public Dictionary<string, object> SearchPolyHavenAssets(string query, string category = null, int limit = 10)
+        {
+            #if UNITY_EDITOR
+            try
+            {
+                // Validate parameters
+                if (string.IsNullOrEmpty(query))
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "error", "Search query is required" },
+                        { "results", new List<Dictionary<string, object>>() }
+                    };
+                }
+                
+                // Normalize category
+                if (!string.IsNullOrEmpty(category))
+                {
+                    category = category.ToLower();
+                    if (category != "models" && category != "textures" && category != "hdris")
+                    {
+                        return new Dictionary<string, object>
+                        {
+                            { "error", $"Invalid category: {category}. Valid categories are: models, textures, hdris" },
+                            { "results", new List<Dictionary<string, object>>() }
+                        };
+                    }
+                }
+                
+                // In a real implementation, this would call the PolyHaven API
+                // For now, we'll return mock data
+                var results = new List<Dictionary<string, object>>();
+                
+                // Generate mock results based on the query and category
+                string assetType = category ?? "models";
+                for (int i = 1; i <= limit; i++)
+                {
+                    string assetId = $"ph_{assetType}_{i}";
+                    string assetName = $"{query}_{assetType}_{i}";
+                    
+                    results.Add(new Dictionary<string, object>
+                    {
+                        { "id", assetId },
+                        { "name", assetName },
+                        { "category", assetType },
+                        { "url", $"https://polyhaven.com/a/{assetId}" },
+                        { "thumbnailUrl", $"https://polyhaven.com/thumbnails/{assetId}.png" },
+                        { "downloadUrl", $"https://polyhaven.com/download/{assetId}" },
+                        { "author", "PolyHaven" },
+                        { "license", "CC0" }
+                    });
+                }
+                
+                return new Dictionary<string, object>
+                {
+                    { "query", query },
+                    { "category", category },
+                    { "count", results.Count },
+                    { "results", results }
+                };
+            }
+            catch (Exception e)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", $"Failed to search PolyHaven assets: {e.Message}" },
+                    { "results", new List<Dictionary<string, object>>() }
+                };
+            }
+            #else
+            return new Dictionary<string, object>
+            {
+                { "error", "PolyHaven asset search is only available in the Unity Editor" },
+                { "results", new List<Dictionary<string, object>>() }
+            };
+            #endif
+        }
+        
+        [CommandMethod]
+        public Dictionary<string, object> DownloadPolyHavenAsset(string assetId, string resolution = "2k", bool importAfterDownload = true)
+        {
+            #if UNITY_EDITOR
+            try
+            {
+                // Validate parameters
+                if (string.IsNullOrEmpty(assetId))
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "error", "Asset ID is required" }
+                    };
+                }
+                
+                // Validate resolution
+                if (resolution != "1k" && resolution != "2k" && resolution != "4k" && resolution != "8k")
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "error", $"Invalid resolution: {resolution}. Valid resolutions are: 1k, 2k, 4k, 8k" }
+                    };
+                }
+                
+                // In a real implementation, this would download the asset from PolyHaven
+                // For now, we'll simulate the download
+                
+                // Determine the asset type from the ID
+                string assetType = "model";
+                if (assetId.Contains("textures"))
+                {
+                    assetType = "texture";
+                }
+                else if (assetId.Contains("hdris"))
+                {
+                    assetType = "hdri";
+                }
+                
+                // Create a mock path for the downloaded asset
+                string assetName = Path.GetFileName(assetId);
+                string downloadPath = Path.Combine(Application.dataPath, "PolyHaven", assetType, assetName);
+                string projectPath = $"Assets/PolyHaven/{assetType}/{assetName}";
+                
+                // Ensure the directory exists
+                Directory.CreateDirectory(Path.GetDirectoryName(downloadPath));
+                
+                // Simulate the download by creating an empty file
+                if (!File.Exists(downloadPath))
+                {
+                    File.WriteAllText(downloadPath, "Mock PolyHaven asset content");
+                }
+                
+                // Import the asset if requested
+                if (importAfterDownload)
+                {
+                    UnityEditor.AssetDatabase.Refresh();
+                }
+                
+                return new Dictionary<string, object>
+                {
+                    { "assetId", assetId },
+                    { "assetType", assetType },
+                    { "resolution", resolution },
+                    { "downloadPath", downloadPath },
+                    { "projectPath", projectPath },
+                    { "imported", importAfterDownload },
+                    { "success", true }
+                };
+            }
+            catch (Exception e)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", $"Failed to download PolyHaven asset: {e.Message}" }
+                };
+            }
+            #else
+            return new Dictionary<string, object>
+            {
+                { "error", "PolyHaven asset download is only available in the Unity Editor" }
+            };
+            #endif
+        }
+        
+        [CommandMethod]
+        public Dictionary<string, object> AssetStoreApi(string endpoint, string method = "GET", Dictionary<string, object> parameters = null, bool cacheResults = true)
+        {
+            #if UNITY_EDITOR
+            try
+            {
+                // Validate parameters
+                if (string.IsNullOrEmpty(endpoint))
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "error", "API endpoint is required" },
+                        { "success", false }
+                    };
+                }
+                
+                // Validate method
+                if (method != "GET" && method != "POST" && method != "PUT" && method != "DELETE")
+                {
+                    return new Dictionary<string, object>
+                    {
+                        { "error", $"Invalid method: {method}. Valid methods are: GET, POST, PUT, DELETE" },
+                        { "success", false }
+                    };
+                }
+                
+                // Check cache first if enabled and it's a GET request
+                string cacheKey = null;
+                if (cacheResults && method == "GET")
+                {
+                    cacheKey = $"{endpoint}_{JsonUtility.ToJson(parameters ?? new Dictionary<string, object>())}";
+                    if (_assetCache.ContainsKey(cacheKey))
+                    {
+                        var cachedResult = _assetCache[cacheKey] as Dictionary<string, object>;
+                        if (cachedResult != null)
+                        {
+                            cachedResult["fromCache"] = true;
+                            return cachedResult;
+                        }
+                    }
+                }
+                
+                // In a real implementation, this would call the Unity Asset Store API
+                // For now, we'll create a mock implementation that returns different responses
+                // based on the endpoint and method
+                
+                Dictionary<string, object> result = new Dictionary<string, object>();
+                
+                // Process different endpoints
+                switch (endpoint.ToLower())
+                {
+                    case "assets":
+                        result = HandleAssetsEndpoint(method, parameters);
+                        break;
+                        
+                    case "categories":
+                        result = HandleCategoriesEndpoint(method, parameters);
+                        break;
+                        
+                    case "publishers":
+                        result = HandlePublishersEndpoint(method, parameters);
+                        break;
+                        
+                    case "user":
+                        result = HandleUserEndpoint(method, parameters);
+                        break;
+                        
+                    default:
+                        result = new Dictionary<string, object>
+                        {
+                            { "error", $"Unknown endpoint: {endpoint}" },
+                            { "success", false }
+                        };
+                        break;
+                }
+                
+                // Cache the result if needed
+                if (cacheResults && method == "GET" && result.ContainsKey("success") && (bool)result["success"])
+                {
+                    _assetCache[cacheKey] = result;
+                }
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object>
+                {
+                    { "error", $"Error accessing Asset Store API: {ex.Message}" },
+                    { "stack", ex.StackTrace },
+                    { "success", false }
+                };
+            }
+            #else
+            return new Dictionary<string, object>
+            {
+                { "error", "Asset Store API is only available in the Unity Editor" },
+                { "success", false }
+            };
+            #endif
+        }
+        
+        private Dictionary<string, object> HandleAssetsEndpoint(string method, Dictionary<string, object> parameters)
+        {
+            // Mock implementation for the assets endpoint
+            if (method == "GET")
+            {
+                // Handle asset search or get asset details
+                string assetId = parameters != null && parameters.ContainsKey("id") ? parameters["id"] as string : null;
+                
+                if (!string.IsNullOrEmpty(assetId))
+                {
+                    // Return details for a specific asset
+                    return new Dictionary<string, object>
+                    {
+                        { "id", assetId },
+                        { "name", $"Asset {assetId}" },
+                        { "description", "This is a mock asset description." },
+                        { "publisher", "Mock Publisher" },
+                        { "category", "3D Models" },
+                        { "price", "Free" },
+                        { "rating", 4.5f },
+                        { "downloads", 1000 },
+                        { "lastUpdated", DateTime.Now.AddDays(-30).ToString("yyyy-MM-dd") },
+                        { "version", "1.0.0" },
+                        { "size", "25MB" },
+                        { "requirements", "Unity 2020.3 or higher" },
+                        { "success", true }
+                    };
+                }
+                else
+                {
+                    // Return a list of assets (search results)
+                    string query = parameters != null && parameters.ContainsKey("query") ? parameters["query"] as string : "";
+                    string category = parameters != null && parameters.ContainsKey("category") ? parameters["category"] as string : null;
+                    int limit = parameters != null && parameters.ContainsKey("limit") ? Convert.ToInt32(parameters["limit"]) : 10;
+                    
+                    var results = new List<Dictionary<string, object>>();
+                    for (int i = 1; i <= limit; i++)
+                    {
+                        results.Add(new Dictionary<string, object>
+                        {
+                            { "id", $"asset_{i}" },
+                            { "name", $"{query} Asset {i}" },
+                            { "publisher", "Mock Publisher" },
+                            { "category", category ?? "3D Models" },
+                            { "price", i % 3 == 0 ? "$9.99" : "Free" },
+                            { "rating", 3.5f + (i % 3) }
+                        });
+                    }
+                    
+                    return new Dictionary<string, object>
+                    {
+                        { "query", query },
+                        { "category", category },
+                        { "count", results.Count },
+                        { "results", results },
+                        { "success", true }
+                    };
+                }
+            }
+            else if (method == "POST")
+            {
+                // Mock implementation for purchasing an asset
+                return new Dictionary<string, object>
+                {
+                    { "message", "Asset purchase initiated" },
+                    { "transactionId", Guid.NewGuid().ToString() },
+                    { "success", true }
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                { "error", $"Method {method} not supported for assets endpoint" },
+                { "success", false }
+            };
+        }
+        
+        private Dictionary<string, object> HandleCategoriesEndpoint(string method, Dictionary<string, object> parameters)
+        {
+            // Mock implementation for the categories endpoint
+            if (method == "GET")
+            {
+                var categories = new List<Dictionary<string, object>>
+                {
+                    new Dictionary<string, object> { { "id", "3d" }, { "name", "3D Models" }, { "count", 1250 } },
+                    new Dictionary<string, object> { { "id", "textures" }, { "name", "Textures & Materials" }, { "count", 980 } },
+                    new Dictionary<string, object> { { "id", "tools" }, { "name", "Tools" }, { "count", 750 } },
+                    new Dictionary<string, object> { { "id", "audio" }, { "name", "Audio" }, { "count", 420 } },
+                    new Dictionary<string, object> { { "id", "vfx" }, { "name", "Visual Effects" }, { "count", 380 } },
+                    new Dictionary<string, object> { { "id", "templates" }, { "name", "Templates" }, { "count", 210 } }
+                };
+                
+                return new Dictionary<string, object>
+                {
+                    { "categories", categories },
+                    { "count", categories.Count },
+                    { "success", true }
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                { "error", $"Method {method} not supported for categories endpoint" },
+                { "success", false }
+            };
+        }
+        
+        private Dictionary<string, object> HandlePublishersEndpoint(string method, Dictionary<string, object> parameters)
+        {
+            // Mock implementation for the publishers endpoint
+            if (method == "GET")
+            {
+                string publisherId = parameters != null && parameters.ContainsKey("id") ? parameters["id"] as string : null;
+                
+                if (!string.IsNullOrEmpty(publisherId))
+                {
+                    // Return details for a specific publisher
+                    return new Dictionary<string, object>
+                    {
+                        { "id", publisherId },
+                        { "name", $"Publisher {publisherId}" },
+                        { "description", "This is a mock publisher description." },
+                        { "website", "https://example.com" },
+                        { "assetCount", 25 },
+                        { "rating", 4.2f },
+                        { "success", true }
+                    };
+                }
+                else
+                {
+                    // Return a list of publishers
+                    int limit = parameters != null && parameters.ContainsKey("limit") ? Convert.ToInt32(parameters["limit"]) : 10;
+                    
+                    var results = new List<Dictionary<string, object>>();
+                    for (int i = 1; i <= limit; i++)
+                    {
+                        results.Add(new Dictionary<string, object>
+                        {
+                            { "id", $"pub_{i}" },
+                            { "name", $"Publisher {i}" },
+                            { "assetCount", i * 5 },
+                            { "rating", 3.0f + (i % 5) * 0.5f }
+                        });
+                    }
+                    
+                    return new Dictionary<string, object>
+                    {
+                        { "count", results.Count },
+                        { "results", results },
+                        { "success", true }
+                    };
+                }
+            }
+            
+            return new Dictionary<string, object>
+            {
+                { "error", $"Method {method} not supported for publishers endpoint" },
+                { "success", false }
+            };
+        }
+        
+        private Dictionary<string, object> HandleUserEndpoint(string method, Dictionary<string, object> parameters)
+        {
+            // Mock implementation for the user endpoint
+            if (method == "GET")
+            {
+                // Return user profile and purchased assets
+                var purchasedAssets = new List<Dictionary<string, object>>();
+                for (int i = 1; i <= 5; i++)
+                {
+                    purchasedAssets.Add(new Dictionary<string, object>
+                    {
+                        { "id", $"asset_{i}" },
+                        { "name", $"Purchased Asset {i}" },
+                        { "purchaseDate", DateTime.Now.AddDays(-i * 30).ToString("yyyy-MM-dd") }
+                    });
+                }
+                
+                return new Dictionary<string, object>
+                {
+                    { "username", "MockUser" },
+                    { "email", "mock@example.com" },
+                    { "purchasedAssets", purchasedAssets },
+                    { "wishlist", new List<string> { "asset_10", "asset_15", "asset_20" } },
+                    { "success", true }
+                };
+            }
+            
+            return new Dictionary<string, object>
+            {
+                { "error", $"Method {method} not supported for user endpoint" },
+                { "success", false }
+            };
+        }
+        
         // This would be a WebClient in a real implementation
         private class WebClient : IDisposable
         {
